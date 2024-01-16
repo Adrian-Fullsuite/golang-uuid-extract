@@ -2,15 +2,42 @@ package main
 
 import (
 	"bufio"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"regexp"
 	"strings"
+
+	"github.com/joho/godotenv"
 )
 
-func main() {
+func encrypt(plaintext []byte, key []byte) (string, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
 
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err = io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
+	}
+
+	ciphertext := gcm.Seal(nonce, nonce, plaintext, nil)
+	return hex.EncodeToString(ciphertext), nil
+}
+
+func main() {
+	godotenv.Load()
 	uuid := exec.Command("wmic", "csproduct", "get", "uuid")
 	serial := exec.Command("wmic", "diskdrive", "get", "serialnumber")
 
@@ -35,6 +62,11 @@ func main() {
 	stdout_uuid = re.ReplaceAllString(stdout_uuid, "")
 
 	output := stdout_uuid + stdout_serial
+
+	text := []byte(output)
+	key := []byte(os.Getenv("SECRET_KEY"))
+
+	hash, _ := encrypt(text, key)
 	
 	filename := "serial.spi"
 
@@ -46,7 +78,7 @@ func main() {
 
 	writer := bufio.NewWriter(file)
 	
-	_, err = writer.WriteString(output)
+	_, err = writer.WriteString(hash)
 
 	if err != nil {
 		fmt.Println("Error writing to file:", err)
